@@ -1,0 +1,6 @@
+@EzzLocGpsService_HostAddress = http://localhost:5223
+
+GET {{EzzLocGpsService_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
