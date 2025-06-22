@@ -2,7 +2,7 @@ using Serilog;
 using EzzLocGpsService.Services;
 using Supabase;
 using Hangfire;
-using Hangfire.SqlServer;
+using Hangfire.MySql;
 using Hangfire.Dashboard;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,7 +48,12 @@ builder.Services.AddHangfire(configuration =>
     configuration.SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
                  .UseSimpleAssemblyNameTypeSerializer()
                  .UseRecommendedSerializerSettings()
-                 .UseSqlServerStorage(builder.Configuration.GetConnectionString("HangfireConnection"))
+                 .UseStorage(new MySqlStorage(
+                     builder.Configuration.GetConnectionString("HangfireMySqlConnection"),
+                     new MySqlStorageOptions
+                     {
+                         TablesPrefix = "Hangfire"
+                     }))
 );
 
 // 添加 Hangfire 服务器
