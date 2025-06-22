@@ -1,6 +1,9 @@
 using Serilog;
 using EzzLocGpsService.Services;
 using Supabase;
+using Hangfire;
+using Hangfire.SqlServer;
+using Hangfire.Dashboard;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,11 +43,24 @@ builder.Services.AddSingleton<Supabase.Client>(provider =>
     return client;
 });
 
+// 添加 Hangfire 服务
+builder.Services.AddHangfire(configuration => 
+    configuration.SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+                 .UseSimpleAssemblyNameTypeSerializer()
+                 .UseRecommendedSerializerSettings()
+                 .UseSqlServerStorage(builder.Configuration.GetConnectionString("HangfireConnection"))
+);
+
+// 添加 Hangfire 服务器
+builder.Services.AddHangfireServer();
+
 // 注册服务
 builder.Services.AddScoped<EzzLocService>();
 
 // 注册后台服务
-builder.Services.AddHostedService<EzzLocBackgroundService>();
+//builder.Services.AddHostedService<EzzLocBackgroundService>();
+// 注册后台任务服务
+builder.Services.AddScoped<EzzLocBackgroundJobWithHangFire>();
 
 // 添加健康检查
 builder.Services.AddHealthChecks();
@@ -63,6 +79,16 @@ app.UseAuthorization();
 app.MapControllers();
 app.UseStaticFiles();
 
+// 添加 Hangfire 仪表板
+app.UseHangfireDashboard("/hangfire");
+
+// 配置定时任务
+RecurringJob.AddOrUpdate<EzzLocBackgroundJobWithHangFire>(
+    "sync-gps-data",
+    job => job.ExecuteAsync(),
+    "*/5 * * * *"  // Cron 表达式：每5分钟执行一次
+);
+
 // 添加健康检查端点
 app.MapHealthChecks("/health");
 
@@ -80,7 +106,3 @@ finally
     Log.CloseAndFlush();
 }
 
-internal record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
