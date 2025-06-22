@@ -1,30 +1,25 @@
 using Supabase.Postgrest.Models;
-using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
+using Supabase.Postgrest.Attributes;  // 使用 Supabase 的特性
+
 
 namespace EzzLocGpsService.Models
 {
     [Table("vehicle_gps_track_data")]
     public class VehicleGpsTrackData:BaseModel
     {
-        [Key]
-        [Column("id")]
+        [PrimaryKey("id")]  // 改用 Supabase 的主键特性
         public long Id { get; set; }
 
         [Column("vehicle_id")]
-        [Required]
         public int VehicleId { get; set; }
 
         [Column("gps_time")]
-        [Required]
         public DateTime GpsTime { get; set; }
 
         [Column("lat")]
-        [Required]
         public double Lat { get; set; }
 
         [Column("lon")]
-        [Required]
         public double Lon { get; set; }
 
         [Column("direction")]
@@ -46,7 +41,6 @@ namespace EzzLocGpsService.Models
         public double? Voltage { get; set; }
 
         [Column("raw_status")]
-        [MaxLength(500)]
         public string? RawStatus { get; set; }
 
         [Column("inserted_at")]

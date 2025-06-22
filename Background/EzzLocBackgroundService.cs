@@ -1,9 +1,11 @@
+using EzzLocGpsService.Models;
 using EzzLocGpsService.Services;
 
 public class EzzLocBackgroundService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<EzzLocBackgroundService> _logger;
+     private readonly Supabase.Client _supabaseClient; 
 
     public EzzLocBackgroundService(IServiceProvider serviceProvider, ILogger<EzzLocBackgroundService> logger)
     {
@@ -15,19 +17,42 @@ public class EzzLocBackgroundService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            using var scope = _serviceProvider.CreateScope();
-            var service = scope.ServiceProvider.GetRequiredService<EzzLocService>();
-
             try
             {
-                await service.SyncOnceAsync();
+                _logger.LogInformation("Starting GPS data sync cycle...");
+                
+                using (var scope = _serviceProvider.CreateScope())
+                {
+                    var service = scope.ServiceProvider.GetRequiredService<EzzLocService>();
+                    
+                    try
+                    {
+                        await service.SyncOnceAsync();
+                        _logger.LogInformation("Successfully completed GPS data sync one cycle");
+                    }
+                    catch (Exception serviceEx)
+                    {
+                        _logger.LogError(serviceEx, "Error during GPS data sync: {Message}, StackTrace: {StackTrace}", 
+                            serviceEx.Message, 
+                            serviceEx.StackTrace);
+                    }
+                } // scope 浼氬湪杩欓噷鑷姩閲婃斁
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during EzzLoc sync.");
+                _logger.LogError(ex, "Critical error in background service: {Message}", ex.Message);
             }
 
-            await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken); // 可以调整时间间隔
+            try
+            {
+                _logger.LogDebug("Waiting for {Minutes} minutes before next sync cycle", 1);
+                await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Background service is stopping...");
+                break;
+            }
         }
     }
 }

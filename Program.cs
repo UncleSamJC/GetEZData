@@ -61,6 +61,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
+app.UseStaticFiles();
 
 // 添加健康检查端点
 app.MapHealthChecks("/health");
