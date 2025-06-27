@@ -10,11 +10,8 @@ namespace EzzLocGpsService.Models
         [PrimaryKey("id")]  // 改用 Supabase 的主键特性
         public long Id { get; set; }
 
-        [Column("vehicle_id")]
-        public int VehicleId { get; set; }
-
-        [Column("gps_time")]
-        public DateTime GpsTime { get; set; }
+        [Column("global_vehicle_no")]
+        public int GlobalVehicleNo { get; set; }
 
         [Column("lat")]
         public double Lat { get; set; }
@@ -45,5 +42,14 @@ namespace EzzLocGpsService.Models
 
         [Column("inserted_at")]
         public DateTime? InsertedAt { get; set; } = DateTime.UtcNow;
+
+        [Column("gps_time_utc")]
+        public DateTime GpsTimeUtc { get; set; }
+
+        [Column("gps_time_unix")]
+        public long GpsTimeUnix { get; set; }
+
+
+
     }
 }

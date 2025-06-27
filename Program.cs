@@ -2,7 +2,7 @@ using Serilog;
 using EzzLocGpsService.Services;
 using Supabase;
 using Hangfire;
-using Hangfire.MySql;
+using Hangfire.SqlServer;
 using Hangfire.Dashboard;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,12 +48,17 @@ builder.Services.AddHangfire(configuration =>
     configuration.SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
                  .UseSimpleAssemblyNameTypeSerializer()
                  .UseRecommendedSerializerSettings()
-                 .UseStorage(new MySqlStorage(
-                     builder.Configuration.GetConnectionString("HangfireMySqlConnection"),
-                     new MySqlStorageOptions
+                 .UseSqlServerStorage(
+                     builder.Configuration.GetConnectionString("HangfireSqlServerConnection"),
+                     new SqlServerStorageOptions
                      {
-                         TablesPrefix = "Hangfire"
-                     }))
+                         SchemaName = "dbo",
+                         CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
+                         SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+                         QueuePollInterval = TimeSpan.FromSeconds(15),
+                         UseRecommendedIsolationLevel = true,
+                         DisableGlobalLocks = true
+                     })
 );
 
 // 添加 Hangfire 服务器
@@ -62,17 +67,17 @@ builder.Services.AddHangfireServer();
 // 注册服务
 builder.Services.AddScoped<EzzLocService>();
 
-// 注册后台服务
-//builder.Services.AddHostedService<EzzLocBackgroundService>();
 // 注册后台任务服务
 builder.Services.AddScoped<EzzLocBackgroundJobWithHangFire>();
+builder.Services.AddScoped<EzzLocGpsService.Background.TripSegmentJob>();
+
 
 // 添加健康检查
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
-// 配置 HTTP 请求管道
+// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -80,22 +85,36 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseAuthorization();
 app.MapControllers();
+app.UseAuthorization();
 app.UseStaticFiles();
 
-// 添加 Hangfire 仪表板
-app.UseHangfireDashboard("/hangfire");
+// 配置 Hangfire Dashboard
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    Authorization = new[] { new AllowAllConnectionsFilter() }
+});
+
+
+
+// 添加健康检查端点
+app.MapHealthChecks("/health");
+
+
 
 // 配置定时任务
 RecurringJob.AddOrUpdate<EzzLocBackgroundJobWithHangFire>(
     "sync-gps-data",
     job => job.ExecuteAsync(),
-    "*/5 * * * *"  // Cron 表达式：每5分钟执行一次
+    "*/3 * * * *"  // Cron 表达式：每3分钟执行一次
 );
 
-// 添加健康检查端点
-app.MapHealthChecks("/health");
+RecurringJob.AddOrUpdate<EzzLocGpsService.Background.TripSegmentJob>(
+    "process-trip-segments",
+    job => job.ExecuteAsync(),
+    "0 1 * * *" // Cron 表达式：每天凌晨1点执行
+);
+
 
 try
 {
@@ -104,10 +123,15 @@ try
 }
 catch (Exception ex)
 {
-    Log.Fatal(ex, "应用程序启动失败");
+   Log.Fatal(ex, "应用程序启动失败");
 }
 finally
 {
     Log.CloseAndFlush();
+}
+
+public class AllowAllConnectionsFilter : IDashboardAuthorizationFilter
+{
+    public bool Authorize(DashboardContext context) => true;
 }
 

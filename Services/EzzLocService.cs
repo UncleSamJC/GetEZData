@@ -4,6 +4,9 @@ using System.Text.Json;
 using System.Text;
 using System.Text.RegularExpressions;
 using EzzLocGpsService.Models;
+using Supabase.Postgrest;
+using Microsoft.Extensions.Logging;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace EzzLocGpsService.Services
 {
@@ -18,55 +21,6 @@ namespace EzzLocGpsService.Services
             _supabase = supabase;
             _httpClient = httpClient;
             _logger = logger;
-        }
-
-        public async Task SyncOnceAsync()
-        {
-            string token = "";
-            try 
-            {
-                _logger.LogInformation("开始获取Token...");
-                token = await GetLatestTokenAsync();
-                
-                if (string.IsNullOrEmpty(token))
-                {
-                    _logger.LogWarning("未找到可用的Token");
-                    return;
-                }
-                
-                _logger.LogInformation("成功获取Token: {TokenPrefix}...", token[..Math.Min(token.Length, 6)]);
-
-                var data = await FetchEzzLocDataAsync(token);
-                if(data != null && data.Detail?.Data != null)
-                {
-                    _logger.LogInformation("获取到 {Count} 条GPS数据点", data.Detail.Data.Count);
-                    
-                    // 转换并保存数据
-                    var trackDataList = data.Detail.Data.Select(point => new VehicleGpsTrackData
-                    {
-                        VehicleId = 1, // 将 point.VehicleID 改为固定值 1
-                        GpsTime = DateTimeOffset.FromUnixTimeMilliseconds(point.GpsTime).UtcDateTime,
-                        Lat = point.Lat,
-                        Lon = point.Lon,
-                        Direction = point.Direction,
-                        Speed = point.Speed,
-                        Odometer = point.Odometer,
-                        LoStatus = point.LoStatus,
-                        RawStatus = point.Status,
-                        // 解析 Status 字符串获取 ACC 状态和电压
-                        AccStatus = point.Status.Contains("ACC开"),
-                        Voltage = ExtractVoltage(point.Status),
-                        InsertedAt = DateTime.UtcNow
-                    }).ToList();
-
-                    await SaveDataToSupabaseAsync(trackDataList);
-                    _logger.LogInformation("成功保存 {Count} 条GPS数据到数据库", trackDataList.Count);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "执行同步时发生错误");
-            }
         }
 
         private async Task<string?> GetLatestTokenAsync()
@@ -96,16 +50,30 @@ namespace EzzLocGpsService.Services
                 return null;
             }
         }
-          
 
-        private async Task<EzzLocResponse?> FetchEzzLocDataAsync(string token)
+        public async Task FetchEzzLocDataAsync(long beginTime, long endTime)
         {
+            string token = "";
             try
             {
-                // 计算时间范围
-                var endTime = DateTime.UtcNow;
-                var beginTime = endTime.AddMinutes(-5);
+                _logger.LogInformation("开始获取Token...");
+                token = await GetLatestTokenAsync();
 
+                if (string.IsNullOrEmpty(token))
+                {
+                    _logger.LogWarning("未找到可用的Token");
+                    return;
+                }
+
+                _logger.LogInformation("成功获取Token: {TokenPrefix}...", token[..Math.Min(token.Length, 6)]);
+            }
+            catch (Exception ex) {
+                _logger.LogError(ex, "Token获取失败了...");
+            }
+
+
+            try
+                {               
                 // 构建请求体
                 var request = new EzzLocRequest
                 {
@@ -115,8 +83,8 @@ namespace EzzLocGpsService.Services
                     Params = new EzzLocRequestParams
                     {
                         VehicleID = "1053633",
-                        BeginTime = ((DateTimeOffset)beginTime).ToUnixTimeMilliseconds(),
-                        EndTime = ((DateTimeOffset)endTime).ToUnixTimeMilliseconds()
+                        BeginTime = beginTime,
+                        EndTime = endTime
                     }
                 };
 
@@ -140,7 +108,7 @@ namespace EzzLocGpsService.Services
                     var errorContent = await response.Content.ReadAsStringAsync();
                     _logger.LogError("请求失败: {StatusCode}, 错误内容: {ErrorContent}", 
                         response.StatusCode, errorContent);
-                    return null;
+                    return;
                 }
 
                 var responseContent = await response.Content.ReadAsStringAsync();
@@ -156,15 +124,39 @@ namespace EzzLocGpsService.Services
                 if (ezzlocResponse?.Result != 1)
                 {
                     _logger.LogError("API返回错误: {ResultNote}", ezzlocResponse?.ResultNote ?? "Unknown error");
-                    return null;
+                    return;
                 }
 
-                return ezzlocResponse;
+                if (ezzlocResponse != null && ezzlocResponse.Detail?.Data != null)
+                {
+                    _logger.LogInformation("获取到 {Count} 条GPS数据点", ezzlocResponse.Detail.Data.Count);
+
+                    // 转换并保存数据
+                    var trackDataList = ezzlocResponse.Detail.Data.Select(point => new VehicleGpsTrackData
+                    {
+                        GlobalVehicleNo = point.VehicleID,
+                        GpsTimeUtc = DateTimeOffset.FromUnixTimeMilliseconds(point.GpsTime).UtcDateTime,
+                        GpsTimeUnix = point.GpsTime,
+                        Lat = point.Lat,
+                        Lon = point.Lon,
+                        Direction = point.Direction,
+                        Speed = point.Speed,
+                        Odometer = point.Odometer,
+                        LoStatus = point.LoStatus,
+                        RawStatus = point.Status,
+                        // 解析 Status 字符串获取 ACC 状态和电压
+                        AccStatus = point.Status.Contains("ACC开"),
+                        Voltage = ExtractVoltage(point.Status),
+                        InsertedAt = DateTime.UtcNow
+                    }).ToList();
+
+                    await SaveDataToSupabaseAsync(trackDataList);
+                    _logger.LogInformation("成功保存 {Count} 条GPS数据到数据库", trackDataList.Count);
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "请求 EzzLoc API 时发生错误");
-                return null;
             }
         }
 
@@ -255,7 +247,6 @@ namespace EzzLocGpsService.Services
                 throw;
             }
         }
-    }
 
-   
+       }
 }
